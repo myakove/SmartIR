@@ -125,6 +125,7 @@ class SmartIRClimate(ClimateDevice, RestoreEntity):
 
         self._temp_lock = asyncio.Lock()
         self._on_by_remote = False
+        self.on_cmd = False
 
         #Init the IR/RF controller
         self._controller = Controller(
@@ -320,20 +321,35 @@ class SmartIRClimate(ClimateDevice, RestoreEntity):
 
     async def send_command(self):
         async with self._temp_lock:
+            command = None
             self._on_by_remote = False
             operation_mode = self._hvac_mode
             fan_mode = self._current_fan_mode
             target_temperature = '{0:g}'.format(self._target_temperature)
 
             if operation_mode.lower() == HVAC_MODE_OFF:
-                command = self._commands['off']
+                if self.on_cmd:
+                    command = self._commands['off']
+                    self.on_cmd = False
+                # command = self._commands['off']
             else:
+                if not self.on_cmd:
+                    try:
+                        await self._controller.send(self._commands['off'])
+                        self.on_cmd = True
+                    except Exception as e:
+                        _LOGGER.exception(e)
                 command = self._commands[operation_mode][fan_mode][target_temperature]
 
-            try:
-                await self._controller.send(command)
-            except Exception as e:
-                _LOGGER.exception(e)
+            if command:
+                try:
+                    await self._controller.send(command)
+                except Exception as e:
+                    _LOGGER.exception(e)
+            # try:
+            #     await self._controller.send(command)
+            # except Exception as e:
+            #     _LOGGER.exception(e)
             
     async def _async_temp_sensor_changed(self, entity_id, old_state, new_state):
         """Handle temperature sensor changes."""
